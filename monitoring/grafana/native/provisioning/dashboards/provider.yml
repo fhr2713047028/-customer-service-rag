@@ -1,0 +1,13 @@
+# 原生 Grafana（Windows）仪表盘自动供给：
+# 指向安装目录下的 dashboards 文件夹（与容器版路径 /var/lib/grafana/dashboards 对应）
+apiVersion: 1
+
+providers:
+  - name: "cs-rag"
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: C:/Program Files/GrafanaLabs/grafana/conf/provisioning/dashboards

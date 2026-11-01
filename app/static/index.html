@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智能客服 Demo · 企业级智能客服 RAG</title>
+  <style>
+    :root {
+      --bg: #f4f5f7; --card: #ffffff; --primary: #3b6ef5; --text: #1f2329;
+      --muted: #8a919c; --border: #e4e7eb; --user-bubble: #3b6ef5; --sys-bubble: #ffffff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: var(--bg); color: var(--text); height: 100vh; display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: var(--card); border-bottom: 1px solid var(--border);
+      padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    header h1 { font-size: 16px; font-weight: 600; }
+    header .sub { color: var(--muted); font-size: 12px; }
+    header input[type=password] {
+      margin-left: auto; width: 300px; padding: 8px 12px; border: 1px solid var(--border);
+      border-radius: 6px; font-size: 13px;
+    }
+    #status { font-size: 12px; color: var(--muted); }
+    #status.ok { color: #18a058; }
+    #status.err { color: #d03050; }
+    #chat {
+      flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px;
+    }
+    .msg { display: flex; flex-direction: column; max-width: 720px; }
+    .msg.user { align-self: flex-end; align-items: flex-end; }
+    .msg.sys { align-self: flex-start; align-items: flex-start; }
+    .bubble {
+      padding: 10px 14px; border-radius: 10px; font-size: 14px; line-height: 1.7;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .user .bubble { background: var(--user-bubble); color: #fff; border-bottom-right-radius: 2px; }
+    .sys .bubble { background: var(--sys-bubble); border: 1px solid var(--border); border-bottom-left-radius: 2px; }
+    .meta { margin-top: 6px; font-size: 11px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; }
+    .meta .badge {
+      background: #eef2ff; color: #2c4fd8; padding: 2px 8px; border-radius: 10px;
+    }
+    .meta .badge.fallback { background: #fdf0f0; color: #c0392b; }
+    .sources { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+    .source {
+      font-size: 12px; color: var(--muted); background: #fafbfc; border: 1px solid var(--border);
+      border-radius: 6px; padding: 5px 10px;
+    }
+    .source b { color: var(--text); font-weight: 500; }
+    footer {
+      background: var(--card); border-top: 1px solid var(--border); padding: 12px 20px;
+      display: flex; gap: 10px; align-items: center;
+    }
+    footer input[type=text] {
+      flex: 1; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 14px;
+    }
+    footer button {
+      padding: 10px 22px; background: var(--primary); color: #fff; border: none;
+      border-radius: 8px; font-size: 14px; cursor: pointer;
+    }
+    footer button:disabled { background: #a8b7d9; cursor: not-allowed; }
+    .hint { font-size: 12px; color: var(--muted); padding: 4px 20px 0; }
+    .hint code {
+      background: #eef0f3; padding: 1px 6px; border-radius: 4px; font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>智能客服 Demo</h1>
+    <span class="sub">订单 · 物流 · 商品 · 退货退款政策（企业级 RAG 演示）</span>
+    <input type="password" id="token" placeholder="粘贴测试令牌（Bearer token）">
+    <span id="status">未设置令牌</span>
+  </header>
+
+  <div class="hint">
+    获取令牌：<code>docker compose exec app python -m scripts.issue_token --user-id 1</code>
+    试问：我的订单到哪里了？｜退货需要什么条件？｜我的订单符合退货条件吗？｜帮我看一下
+  </div>
+
+  <div id="chat"></div>
+
+  <footer>
+    <input type="text" id="input" placeholder="输入问题，回车发送" autocomplete="off">
+    <button id="send" disabled>发送</button>
+  </footer>
+
+  <script>
+    const chat = document.getElementById('chat');
+    const input = document.getElementById('input');
+    const sendBtn = document.getElementById('send');
+    const tokenInput = document.getElementById('token');
+    const status = document.getElementById('status');
+
+    tokenInput.addEventListener('input', () => {
+      const has = tokenInput.value.trim().length > 0;
+      sendBtn.disabled = !has;
+      status.textContent = has ? '令牌已设置' : '未设置令牌';
+      status.className = has ? 'ok' : '';
+    });
+
+    function addMessage(role, text, meta, sources) {
+      const wrap = document.createElement('div');
+      wrap.className = 'msg ' + role;
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.textContent = text;
+      wrap.appendChild(bubble);
+      if (meta) {
+        const m = document.createElement('div');
+        m.className = 'meta';
+        meta.forEach(b => {
+          const span = document.createElement('span');
+          span.className = 'badge' + (b.includes('fallback') || b.includes('degraded') ? ' fallback' : '');
+          span.textContent = b;
+          m.appendChild(span);
+        });
+        wrap.appendChild(m);
+      }
+      if (sources && sources.length) {
+        const sbox = document.createElement('div');
+        sbox.className = 'sources';
+        sources.forEach(s => {
+          const el = document.createElement('div');
+          el.className = 'source';
+          el.innerHTML = '📄 <b>' + (s.doc_title || s.order_no || '来源') + '</b>' +
+            (s.section ? ' · ' + s.section : '') +
+            (s.score != null ? ' · 相似度 ' + s.score : '');
+          sbox.appendChild(el);
+        });
+        wrap.appendChild(sbox);
+      }
+      chat.appendChild(wrap);
+      chat.scrollTop = chat.scrollHeight;
+      return wrap;
+    }
+
+    async function send() {
+      const question = input.value.trim();
+      const token = tokenInput.value.trim();
+      if (!question || !token) return;
+      addMessage('user', question);
+      input.value = '';
+      const pending = addMessage('sys', '思考中…', null, null);
+      const t0 = performance.now();
+      try {
+        const resp = await fetch('/api/v1/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+          body: JSON.stringify({ message: question }),
+        });
+        const body = await resp.json();
+        const latency = Math.round(performance.now() - t0);
+        pending.remove();
+        if (resp.ok && body.code === 0) {
+          const d = body.data;
+          addMessage('sys', d.answer,
+            ['route: ' + d.route, d.answer_type, d.confidence, latency + 'ms'],
+            d.sources);
+        } else {
+          addMessage('sys', '请求失败：' + (body.message || ('HTTP ' + resp.status)),
+            ['error'], null);
+          if (resp.status === 401) { status.textContent = '令牌无效/过期，请重新签发'; status.className = 'err'; }
+        }
+      } catch (e) {
+        pending.remove();
+        addMessage('sys', '网络错误：' + e.message, ['error'], null);
+      }
+    }
+
+    sendBtn.addEventListener('click', send);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+  </script>
+</body>
+</html>

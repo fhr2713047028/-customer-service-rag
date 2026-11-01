@@ -1,0 +1,60 @@
+# Docker 部署（阶段十一）：FastAPI + PostgreSQL(pgvector) + Prometheus
+# 端口规划（避免与宿主机已装的工具冲突）：
+#   8000 → app（开发时若在宿主机跑 uvicorn，需先停掉）
+#   5433 → postgres（宿主机 5432 被原生 PostgreSQL 占用，部署版映射 5433）
+#   9090 → prometheus（抓取 compose 网络内的 app:8000）
+#   Grafana：使用宿主机已装的原生 Grafana（3000 端口，数据源指向 localhost:9090）；
+#            不再提供容器版 —— 本机网络无法拉取 grafana 镜像（实测记录于 development_plan）
+# 密钥：compose 文件不含任何密钥；运行时通过 env_file: .env 注入（.env 已 gitignore）
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: csr_pg
+    environment:
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: rag_password
+      POSTGRES_DB: rag_db
+    ports:
+      - "5433:5432"
+    volumes:
+      # 独立卷名：避免与历史 compose 的旧卷（含已删除迁移记录）冲突
+      - deploy_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag -d rag_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  app:
+    build: .
+    container_name: csr_app
+    env_file: .env                              # 密钥/LLM/Embedding/LangSmith 配置
+    environment:
+      # 容器内访问数据库用服务名 postgres（覆盖 .env 中的 localhost）
+      DATABASE_URL: postgresql+asyncpg://rag:rag_password@postgres:5432/rag_db
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy             # 数据库就绪后才启动应用
+    # 启动顺序：先执行数据库迁移，再起服务
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  prometheus:
+    image: prom/prometheus
+    container_name: csr_prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - app
+
+volumes:
+  deploy_pgdata: {}

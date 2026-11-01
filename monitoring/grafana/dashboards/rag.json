@@ -1,0 +1,142 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 0,
+  "panels": [
+    {
+      "title": "每秒请求量 (RPS)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[1m]))",
+          "legendFormat": "总 RPS"
+        },
+        {
+          "expr": "sum(rate(http_requests_total[1m])) by (path)",
+          "legendFormat": "{{path}}"
+        }
+      ]
+    },
+    {
+      "title": "错误率",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status=~\"5..\"}[1m])) / sum(rate(http_requests_total[1m]))",
+          "legendFormat": "5xx 占比"
+        },
+        {
+          "expr": "sum(rate(http_requests_total{status=~\"4..\"}[1m])) / sum(rate(http_requests_total[1m]))",
+          "legendFormat": "4xx 占比"
+        }
+      ]
+    },
+    {
+      "title": "请求延迟分布 (P50/P95/P99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "P50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "P95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "P99"
+        }
+      ]
+    },
+    {
+      "title": "RAG 请求耗时（按路径）",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(rag_request_duration_seconds_bucket[1m])) by (le, route))",
+          "legendFormat": "{{route}} P95"
+        }
+      ]
+    },
+    {
+      "title": "数据库与检索耗时",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "rate(db_query_duration_seconds_sum[1m]) / rate(db_query_duration_seconds_count[1m])",
+          "legendFormat": "DB {{operation}}"
+        },
+        {
+          "expr": "rate(rag_retrieval_duration_seconds_sum[1m]) / rate(rag_retrieval_duration_seconds_count[1m])",
+          "legendFormat": "检索 {{source}}"
+        }
+      ]
+    },
+    {
+      "title": "模型调用耗时与错误",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "rate(rag_llm_duration_seconds_sum[1m]) / rate(rag_llm_duration_seconds_count[1m])",
+          "legendFormat": "LLM {{provider}} 平均耗时"
+        },
+        {
+          "expr": "rate(rag_embedding_duration_seconds_sum[1m]) / rate(rag_embedding_duration_seconds_count[1m])",
+          "legendFormat": "Embedding {{provider}} 平均耗时"
+        },
+        {
+          "expr": "sum(increase(rag_llm_errors_total[1m])) + sum(increase(rag_embedding_errors_total[1m]))",
+          "legendFormat": "模型错误数/分钟"
+        }
+      ]
+    },
+    {
+      "title": "HTTP 请求总数（按状态）",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum(http_requests_total)",
+          "legendFormat": "总请求"
+        }
+      ]
+    },
+    {
+      "title": "RAG 回答类型分布",
+      "type": "piechart",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum(increase(rag_request_duration_seconds_count[1h])) by (answer_type)",
+          "legendFormat": "{{answer_type}}"
+        }
+      ]
+    },
+    {
+      "title": "回答类型分布（表格）",
+      "type": "table",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum(increase(rag_request_duration_seconds_count[1h])) by (route, answer_type)",
+          "format": "table",
+          "instant": true
+        }
+      ]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "title": "智能客服 RAG - 运行时指标",
+  "uid": "cs-rag-runtime",
+  "version": 1
+}

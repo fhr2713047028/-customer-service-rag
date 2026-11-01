@@ -1,0 +1,10 @@
+# 原生 Grafana（Windows）数据源自动供给：Prometheus 运行在 Docker 容器，
+# 映射到宿主机 9090 端口（与容器版配置的区别只在 url）
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://localhost:9090
+    isDefault: true

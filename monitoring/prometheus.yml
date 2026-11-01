@@ -1,0 +1,12 @@
+# Prometheus 配置（部署版）：抓取 compose 网络内的应用容器。
+# 开发场景（应用跑在宿主机 uvicorn）时，把 targets 改为：
+#   - targets: ["host.docker.internal:8000"]
+# 本配置不含任何密钥（验收项：监控配置不包含密钥）。
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "cs-rag-app"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["app:8000"]

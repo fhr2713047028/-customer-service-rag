@@ -1,0 +1,27 @@
+# 密钥与本地配置：绝不进镜像（运行时通过 env_file 注入）
+.env
+.env.example
+
+# 本地开发产物
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+
+# 版本控制与文档
+.git/
+.gitignore
+docs/
+
+# 测试与压测代码不进生产镜像
+test/
+loadtests/
+
+# 编辑器
+.idea/
+.vscode/
+
+# 日志
+*.log
