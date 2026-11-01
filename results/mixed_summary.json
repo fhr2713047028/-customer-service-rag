@@ -1,0 +1,99 @@
+{
+  "total": {
+    "requests": 4679,
+    "failures": 42,
+    "rps": 38.99
+  },
+  "endpoints": [
+    {
+      "name": "business_logistics",
+      "requests": 674,
+      "failures": 0,
+      "p50_ms": 7,
+      "p95_ms": 17,
+      "p99_ms": 22,
+      "avg_ms": 8,
+      "rps": 5.66
+    },
+    {
+      "name": "business_order_detail",
+      "requests": 1041,
+      "failures": 0,
+      "p50_ms": 8,
+      "p95_ms": 19,
+      "p99_ms": 29,
+      "avg_ms": 9,
+      "rps": 8.74
+    },
+    {
+      "name": "business_orders_list",
+      "requests": 1421,
+      "failures": 0,
+      "p50_ms": 9,
+      "p95_ms": 20,
+      "p99_ms": 76,
+      "avg_ms": 12,
+      "rps": 11.93
+    },
+    {
+      "name": "business_product_search",
+      "requests": 1104,
+      "failures": 0,
+      "p50_ms": 6,
+      "p95_ms": 21,
+      "p99_ms": 53,
+      "avg_ms": 8,
+      "rps": 9.27
+    },
+    {
+      "name": "mixed_combined_chat",
+      "requests": 40,
+      "failures": 0,
+      "p50_ms": 18,
+      "p95_ms": 2000,
+      "p99_ms": 2000,
+      "avg_ms": 828,
+      "rps": 0.34
+    },
+    {
+      "name": "mixed_no_token_401",
+      "requests": 20,
+      "failures": 20,
+      "p50_ms": 4,
+      "p95_ms": 4,
+      "p99_ms": 4,
+      "avg_ms": 4,
+      "rps": 0.17
+    },
+    {
+      "name": "mixed_order_404",
+      "requests": 22,
+      "failures": 22,
+      "p50_ms": 12,
+      "p95_ms": 12,
+      "p99_ms": 12,
+      "avg_ms": 8,
+      "rps": 0.18
+    },
+    {
+      "name": "rag_full_chat",
+      "requests": 61,
+      "failures": 0,
+      "p50_ms": 1500,
+      "p95_ms": 1900,
+      "p99_ms": 1900,
+      "avg_ms": 1435,
+      "rps": 0.51
+    },
+    {
+      "name": "retrieval_kb_chat",
+      "requests": 296,
+      "failures": 0,
+      "p50_ms": 1400,
+      "p95_ms": 1900,
+      "p99_ms": 1900,
+      "avg_ms": 1341,
+      "rps": 2.49
+    }
+  ]
+}

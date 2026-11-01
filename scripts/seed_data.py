@@ -109,7 +109,12 @@ def build_timeline(faker: Faker, shipped_at: datetime, carrier: str, city_from: 
     ]
 
 
-async def seed() -> None:
+async def seed(
+    num_users: int = NUM_USERS,
+    num_products: int = NUM_PRODUCTS,
+    num_orders: int = NUM_ORDERS,
+) -> None:
+    """生成合成数据；规模可配（压测用 --orders 5000 等），固定种子保证可复现。"""
     rng = random.Random(SEED)
     faker = Faker("zh_CN")
     Faker.seed(SEED)
@@ -120,9 +125,9 @@ async def seed() -> None:
             text("TRUNCATE users, products, orders, order_items, logistics RESTART IDENTITY CASCADE")
         )
 
-        # 1) 用户：20 个，demo_user_001 为管理员
+        # 1) 用户：demo_user_001 为管理员
         users = []
-        for i in range(1, NUM_USERS + 1):
+        for i in range(1, num_users + 1):
             users.append(
                 User(
                     username=f"demo_user_{i:03d}",
@@ -133,9 +138,10 @@ async def seed() -> None:
             )
         session.add_all(users)
 
-        # 2) 商品：40 个（目录固定，价格/库存由种子决定）
+        # 2) 商品（目录固定，价格/库存由种子决定；数量超过目录时循环复用）
         products = []
-        for idx, (name, category, (lo, hi)) in enumerate(PRODUCT_CATALOG, start=1):
+        for idx in range(1, num_products + 1):
+            name, category, (lo, hi) = PRODUCT_CATALOG[(idx - 1) % len(PRODUCT_CATALOG)]
             products.append(
                 Product(
                     sku=f"SKU{idx:04d}",
@@ -150,12 +156,12 @@ async def seed() -> None:
         session.add_all(products)
         await session.flush()  # 拿到 users/products 的主键 id
 
-        # 3) 订单 + 明细 + 物流：100 单，金额由明细累加
+        # 3) 订单 + 明细 + 物流：金额由明细累加
         start = datetime(2026, 9, 1, tzinfo=timezone.utc)
         end = datetime(2026, 10, 30, tzinfo=timezone.utc)
         span_seconds = int((end - start).total_seconds())
 
-        for i in range(1, NUM_ORDERS + 1):
+        for i in range(1, num_orders + 1):
             user = rng.choice(users)
             created_at = start + timedelta(seconds=rng.randint(0, span_seconds))
             order_no = f"SYN{created_at:%Y%m%d}{i:04d}"
@@ -210,7 +216,15 @@ async def seed() -> None:
 
 
 async def main() -> None:
-    await seed()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="合成测试数据初始化（固定种子、幂等）")
+    parser.add_argument("--users", type=int, default=NUM_USERS, help=f"用户数（默认 {NUM_USERS}）")
+    parser.add_argument("--products", type=int, default=NUM_PRODUCTS, help=f"商品数（默认 {NUM_PRODUCTS}）")
+    parser.add_argument("--orders", type=int, default=NUM_ORDERS, help=f"订单数（默认 {NUM_ORDERS}）")
+    args = parser.parse_args()
+
+    await seed(num_users=args.users, num_products=args.products, num_orders=args.orders)
 
     # 汇总验证
     async with SessionFactory() as session:

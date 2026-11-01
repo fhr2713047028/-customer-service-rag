@@ -1,0 +1,19 @@
+{
+  "total": {
+    "requests": 1278,
+    "failures": 0,
+    "rps": 10.65
+  },
+  "endpoints": [
+    {
+      "name": "retrieval_kb_chat",
+      "requests": 1278,
+      "failures": 0,
+      "p50_ms": 370,
+      "p95_ms": 450,
+      "p99_ms": 490,
+      "avg_ms": 399,
+      "rps": 10.74
+    }
+  ]
+}

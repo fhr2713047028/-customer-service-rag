@@ -1,0 +1,19 @@
+{
+  "total": {
+    "requests": 70,
+    "failures": 0,
+    "rps": 0.58
+  },
+  "endpoints": [
+    {
+      "name": "rag_full_chat",
+      "requests": 70,
+      "failures": 0,
+      "p50_ms": 1700,
+      "p95_ms": 2700,
+      "p99_ms": 2700,
+      "avg_ms": 1436,
+      "rps": 0.59
+    }
+  ]
+}
