@@ -108,5 +108,6 @@
 | 2026-10-31 | **阶段九 · 稳定性与自动化测试**：统一重试策略模块（有限重试+指数退避+抖动+错误分类：4xx 不重试、429 与 5xx 可重试）+ Embedding 失败降级（退化为关键词检索并明确标注）+ LLM/Embedding 故障注入测试（MockTransport 零生产调用）+ 数据库不可用显式封装（503/50002）+ 并发 15 请求测试 + 日志脱敏端到端 | ✅ 交付（120 passed；9.2 故障场景表全部有自动化测试） |
 | 2026-10-31 | **阶段十 · 监控与链路追踪**：Prometheus 指标（八族指标，路由模板低基数标签）+ /metrics 端点 + Grafana（原生 Windows 安装，供给数据源+8 面板仪表盘）+ LangSmith 追踪（默认关闭、隐私边界、条件装饰器）+ 23 请求监控验证脚本 | ✅ 交付（124 passed；Prometheus target up 抓真实数据；Grafana 数据源健康 OK、仪表盘已加载、代理查询返回真实数据） |
 | 2026-10-31 | **LangSmith 真实接入**（用户提供 Key）：修复 SDK 0.14 需显式 LANGSMITH_TRACING 的问题；**实测 trace 链路**（kb_answer→hybrid_search→llm.generate 树状追踪）；隐私实测：无 user_id/无密钥/无连接串；测试环境默认关闭 | ✅ 交付（4 条真实 run 含子 run；隐私检查通过；生产掩码 TODO 已记录） |
-| 2026-10-31 | **阶段十一 · Docker 部署**：Dockerfile（清华 pip 镜像）+ .dockerignore（密钥不进镜像）+ compose（postgres 5433/app 8000/prometheus，迁移自动执行，健康检查，独立数据卷）+ README 部署文档 | ✅ 交付（config 校验通过；三服务 healthy；迁移在容器内完成；种子+知识库导入；**重启验证：stop→start 后数据完好、接口正常、chat 真实生成**；过程修复 2 个真实部署问题：旧卷迁移冲突、langsmith 漏进依赖清单），**待用户验证** |
-| 下一步 | 待用户定：① admin 知识库管理接口；② Locust 压测（性能目标验证）；③ 简历材料整理 | ⏳ 等待用户指令 |
+| 2026-10-31 | **阶段十一 · Docker 部署**：Dockerfile（清华 pip 镜像）+ .dockerignore（密钥不进镜像）+ compose（postgres 5433/app 8000/prometheus，迁移自动执行，健康检查，独立数据卷）+ README 部署文档 + 简单前端聊天页（app/static/index.html） | ✅ 交付（config 校验通过；三服务 healthy；重启验证数据完好；过程修复旧卷迁移冲突与 langsmith 漏依赖两个真实部署问题） |
+| 2026-11-01 | **阶段十二 · 性能测试与收尾**：Git 初始化（df9eef3 基线）+ 种子脚本规模参数（5000 订单）+ Locust 四类任务脚本 + 三类压测（业务/检索/完整 RAG）+ 混合分布 + Prometheus 环节耗时分解 + 性能报告 | ✅ 交付（业务 API 7129 请求 0 失败 P99≤28ms；检索 P99=490ms 瓶颈=Embedding 294ms；完整 RAG P99=2.7s 瓶颈=LLM 1.24s；报告 docs/performance_report.md 含 12.4 全清单与如实声明；commit 225243d），**待用户验证** |
+| 下一步 | 待用户定：① admin 知识库管理接口（唯一未做的功能）；② 简历材料整理；③ 优化项对照测试（流式/缓存/水平扩容） | ⏳ 等待用户指令 |
