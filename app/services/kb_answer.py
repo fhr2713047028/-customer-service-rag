@@ -32,11 +32,20 @@ async def generate_kb_answer(
     answer_type: generated | fallback | degraded
     extra_context: 组合查询时注入的业务数据（【订单信息】分区）
     """
+    # 查询改写（阶段十五，可配置）：只优化检索，不改写给模型的问题
+    retrieval_question = question
+    if settings.query_rewrite_enabled:
+        from app.services.query_rewrite import rewrite_query
+
+        retrieval_question = await rewrite_query(question)
+        if retrieval_question != question:
+            logger.info("query rewritten: %r -> %r", question[:50], retrieval_question[:60])
+
     embedding_client = get_embedding_client()
     try:
-        query_vec = (await embedding_client.embed_texts([question]))[0]
+        query_vec = (await embedding_client.embed_texts([retrieval_question]))[0]
         # 候选扩大到 10 个：供 rerank 精排后取前 5（阶段十四）
-        hits = await hybrid_search(session, question, query_vec, top_k=10)
+        hits = await hybrid_search(session, retrieval_question, query_vec, top_k=10)
     except EmbeddingError:
         # Embedding 服务失败（阶段九降级边界）：退化为关键词检索，
         # 明确记录错误、明确标注结果性质 —— 不伪造检索结果

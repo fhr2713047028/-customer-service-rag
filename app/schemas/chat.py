@@ -25,6 +25,8 @@ class ChatOut(BaseModel):
     # 处理路径（阶段八）：order_query | logistics_query | product_query
     #                    | kb_retrieval | combined | clarify
     route: str
+    # 路由来源（阶段十五）：rule（规则路由，默认）| llm（LLM 路由）
+    route_source: str = "rule"
     intents: list[str]
     sources: list[SourceOut]
     confidence: str  # high | low

@@ -13,8 +13,10 @@ import logging
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.user import User
-from app.services.intent import detect_intents, extract_order_no, is_combined_query
+from app.services.intent import INTENT_ORDER, detect_intents, extract_order_no, is_combined_query
+from app.services.intent_llm import detect_route_llm
 from app.services.kb_answer import generate_kb_answer
 from app.services.structured_answer import (
     answer_logistics,
@@ -49,7 +51,33 @@ def _clean_product_keyword(message: str) -> str:
 
 
 async def handle_chat(session: AsyncSession, user: User, message: str) -> dict:
-    """一次问答的完整编排。返回 {answer, answer_type, route, intents, sources, confidence}。"""
+    """一次问答的完整编排。返回 {answer, answer_type, route, intents, sources, confidence}。
+
+    路由来源：默认规则路由；ROUTER_LLM_ENABLED=true 时先试 LLM 路由，
+    失败/解析异常自动回退规则路由（阶段十五）。
+    """
+    if settings.router_llm_enabled:
+        llm_route = await detect_route_llm(message)
+        if llm_route is not None:
+            llm_intents = [
+                i for i in llm_route.get("intents", []) if i in INTENT_ORDER
+            ]
+            if llm_route.get("route") == "structured" and llm_intents:
+                result = (
+                    await _combined_route(session, user, message)
+                    if llm_route.get("combined")
+                    else await _structured_route(session, user, message, llm_intents)
+                )
+                result["intents"] = llm_intents
+                result["route_source"] = "llm"
+                return result
+            # LLM 判定为 kb：尊重 LLM 决策，直接走知识库路径
+            result = await generate_kb_answer(session, message)
+            result["route"] = "kb_retrieval"
+            result["intents"] = []
+            result["route_source"] = "llm"
+            return result
+
     intents = detect_intents(message)
 
     if intents:
@@ -70,6 +98,7 @@ async def handle_chat(session: AsyncSession, user: User, message: str) -> dict:
         result["route"] = "kb_retrieval"
 
     result["intents"] = intents
+    result["route_source"] = "rule"
     return result
 
 

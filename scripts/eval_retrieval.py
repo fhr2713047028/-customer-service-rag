@@ -70,6 +70,18 @@ async def run_strategy(strategy: str, questions: list[dict], source_to_id: dict)
                     hits = await rerank_candidates(
                         session, q["question"], hybrid_hits, top_n=TOP_K
                     )
+                elif strategy == "hybrid_rerank_rewrite":
+                    # 阶段十五：查询改写（真实 LLM）→ 混合检索 → rerank 精排
+                    from app.services.query_rewrite import rewrite_query
+
+                    rewritten = await rewrite_query(q["question"])
+                    query_vec = (await client.embed_texts([rewritten]))[0]
+                    hybrid_hits = await hybrid_search(
+                        session, rewritten, query_vec, top_k=10
+                    )
+                    hits = await rerank_candidates(
+                        session, rewritten, hybrid_hits, top_n=TOP_K
+                    )
                 else:  # hybrid
                     query_vec = (await client.embed_texts([q["question"]]))[0]
                     hybrid_hits = await hybrid_search(
@@ -133,7 +145,7 @@ async def run_eval() -> None:
     general = [q for q in kb_questions if q not in kw_type + sem_type]
 
     strategies = {}
-    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite"):
         records = await run_strategy(strategy, kb_questions, source_to_id)
         strategies[strategy] = {
             "records": records,
@@ -159,7 +171,7 @@ async def run_eval() -> None:
         "| 方案 | Hit@5 | Recall@5 | MRR | 平均延迟(ms) | 异常题数 |",
         "|---|---|---|---|---|---|",
     ]
-    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite"):
         m = strategies[strategy]["all"]
         lines.append(
             f"| {strategy} | {m['hit_at_5']:.1%} | {m['recall_at_5']:.1%} | "
@@ -174,20 +186,20 @@ async def run_eval() -> None:
         "| 方案 | Hit@5 | MRR | 平均延迟(ms) |",
         "|---|---|---|---|",
     ]
-    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite"):
         m = strategies[strategy]["kw_type"]
         lines.append(
             f"| {strategy} | {m['hit_at_5']:.1%} | {m['mrr']:.4f} | {m['avg_latency_ms']:.1f} |"
         )
     lines += ["", "### 语义型（改写/口语化，3 题）", "", "| 方案 | Hit@5 | MRR | 平均延迟(ms) |", "|---|---|---|---|"]
-    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite"):
         m = strategies[strategy]["sem_type"]
         lines.append(
             f"| {strategy} | {m['hit_at_5']:.1%} | {m['mrr']:.4f} | {m['avg_latency_ms']:.1f} |"
         )
 
     lines += ["", "## 每题目录（仅列未命中或异常的题，命中题见原数据）", "", "| id | 方案 | 问题 | 异常 |", "|---|---|---|---|"]
-    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite"):
         for r in strategies[strategy]["records"]:
             if not r["hit"] or r["error"]:
                 lines.append(
@@ -206,6 +218,11 @@ async def run_eval() -> None:
         "- **Rerank 精排结论（2026-11-13 实测）**：hybrid_rerank 将 MRR 从 0.9092 恢复到",
         "  1.0000（修正了关键词噪声造成的排序错位），代价是延迟 343ms → 691ms",
         "  （多一次 rerank API 往返约 350ms）——收益与代价都如实记录。",
+        "- **查询改写结论（2026-11-13 实测）**：hybrid_rerank_rewrite 的 MRR 为 0.9804",
+        "  （略低于不改写的 1.0000），延迟增至 1500ms——在强语义模型与小语料下",
+        "  改写未带来收益，生产默认不启用（config: query_rewrite_enabled=false）。",
+        "- **LLM 路由结论**：规则路由与 LLM 路由在 76 题评估集上准确率持平（98.7%），",
+        "  详见 routing_eval_report.md；考虑 LLM 路由每次多约 1s 延迟，规则路由保留为生产默认。",
         "- 相似度/融合分/rerank 相关度都是排序依据，**不等于回答正确的概率**；",
         "  未经验证不设任何分数阈值。",
         "- 各方案指标来自同一评估集与同一语料库，差异可直接归因于检索方案本身。",
@@ -215,7 +232,7 @@ async def run_eval() -> None:
     REPORT_FILE.write_text("\n".join(lines), encoding="utf-8")
 
     print("=== 方案对比（同一评估集，含 rerank 精排）===")
-    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite"):
         m = strategies[strategy]["all"]
         print(
             f"{strategy:<8} Hit@5={m['hit_at_5']:.1%}  Recall@5={m['recall_at_5']:.1%}  "
