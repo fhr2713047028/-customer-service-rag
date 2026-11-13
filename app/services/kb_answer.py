@@ -15,6 +15,7 @@ from app.core.errors import EmbeddingError, LLMError, RerankError
 from app.core.tracing import trace
 from app.embeddings.client import get_embedding_client
 from app.llm.client import REFUSAL_TEXT, get_llm_client
+from app.retrieval.graph import search_graph
 from app.retrieval.hybrid import hybrid_search
 from app.retrieval.keyword import search_chunks_keyword
 from app.retrieval.rerank import rerank_candidates
@@ -91,24 +92,42 @@ async def generate_kb_answer(
             "confidence": "low",
         }
 
+    # GraphRAG 召回补充（阶段十六）：图命中的新块并入候选池，交给 rerank 决定去留。
+    # 图不可用 → 空列表软降级，不阻塞主检索链。
+    graph_pool: list[tuple] = []
+    if settings.graph_enabled:
+        try:
+            graph_hits = await search_graph(session, question, top_k=settings.graph_top_k)
+            existing = {h.chunk.id for h in hits}
+            graph_pool = [(chunk, score) for chunk, score in graph_hits if chunk.id not in existing]
+        except Exception:
+            logger.exception("graph retrieval failed, ignored")
+
+    # 候选池：混合检索前 10 + 图召回新块（阶段十四/十六）
+    pool: list[tuple] = [(h.chunk, h.fused_score) for h in hits[:10]]
+    pool += graph_pool
+    fallback_scores: dict[int, float | None] = {
+        h.chunk.id: (h.vector_score if h.vector_score is not None else None) for h in hits
+    }
+    fallback_scores.update({chunk.id: score for chunk, score in graph_pool})
+
     # Rerank 精排（阶段十四）：在拒答判定之后执行——rerank 只影响候选先后，
     # 不参与"有没有依据"的判断（两种分数不同量纲，混用会破坏阈值语义）。
-    # 失败软降级：回退 RRF 原始顺序，错误记入 rag_rerank_errors_total。
+    # 失败软降级：回退候选池原始顺序，错误记入 rag_rerank_errors_total。
     rerank_scores: dict[int, float] = {}
-    if settings.rerank_enabled and len(hits) > 1:
+    if settings.rerank_enabled and len(pool) > 1:
         try:
             reranked = await rerank_candidates(
-                session, question, hits, top_n=settings.rerank_top_n
+                session, question, pool, top_n=settings.rerank_top_n
             )
             chunks = [chunk for chunk, _ in reranked]
             rerank_scores = {chunk.id: score for chunk, score in reranked}
         except RerankError:
-            logger.exception("rerank failed, fallback to RRF order")
-            chunks = [h.chunk for h in hits[: settings.rerank_top_n]]
+            logger.exception("rerank failed, fallback to pool order")
+            chunks = [chunk for chunk, _ in pool[: settings.rerank_top_n]]
     else:
-        chunks = [h.chunk for h in hits[: settings.rerank_top_n]]
+        chunks = [chunk for chunk, _ in pool[: settings.rerank_top_n]]
 
-    chunks_by_id = {h.chunk.id: h for h in hits}
     user_prompt = build_rag_user_prompt(question, chunks, extra_context=extra_context)
     llm_client = get_llm_client()
     try:
@@ -136,8 +155,8 @@ async def generate_kb_answer(
                 round(rerank_scores[c.id], 4)
                 if c.id in rerank_scores
                 else (
-                    round(chunks_by_id[c.id].vector_score, 4)
-                    if chunks_by_id[c.id].vector_score is not None
+                    round(fallback_scores[c.id], 4)
+                    if fallback_scores.get(c.id) is not None
                     else None
                 )
             ),

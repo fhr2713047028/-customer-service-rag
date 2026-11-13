@@ -28,3 +28,6 @@ locust>=2.29
 # 后续阶段追加（暂不安装，避免提前引入）：
 #   阶段 7:  langsmith
 #   阶段 10: bcrypt, pypdf
+
+# 图数据库驱动（阶段十六 GraphRAG）
+neo4j>=5.0

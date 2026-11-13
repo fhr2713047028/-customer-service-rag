@@ -69,6 +69,13 @@ RERANK_ERRORS = Counter(
     "rag_rerank_errors_total", "Rerank 调用错误数", ["provider", "error_class"]
 )
 
+# 图检索耗时（阶段十六 GraphRAG）
+GRAPH_DURATION = Histogram(
+    "rag_graph_duration_seconds",
+    "图检索耗时（秒）",
+    buckets=(0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1),
+)
+
 # RAG 请求总耗时（按处理路径与回答类型）
 RAG_DURATION = Histogram(
     "rag_request_duration_seconds",

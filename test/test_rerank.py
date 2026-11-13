@@ -108,9 +108,9 @@ async def test_kb_answer_uses_rerank_order(db_available: bool, monkeypatch):
     if not db_available:
         pytest.skip("本机 5432 无 PostgreSQL")
 
-    async def fake_rerank(session, query, hits, top_n):
-        # 反转 RRF 顺序，且分数统一为 0.99 —— 便于断言精排真的生效
-        return [(hit.chunk, 0.99) for hit in reversed(hits[:top_n])]
+    async def fake_rerank(session, query, pool, top_n):
+        # 反转候选池顺序，且分数统一为 0.99 —— 便于断言精排真的生效
+        return [(chunk, 0.99) for chunk, _ in reversed(pool[:top_n])]
 
     resp = await _chat_with_rerank(monkeypatch, fake_rerank)
     data = resp.json()["data"]

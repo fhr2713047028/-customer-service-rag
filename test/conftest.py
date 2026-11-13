@@ -37,6 +37,8 @@ def _force_mock_llm_only(monkeypatch):
     monkeypatch.setattr(settings, "kb_refusal_min_score", 0.0)
     # Rerank 默认关闭（测试确定性；rerank 专项测试自行开启并注入 mock 客户端）
     monkeypatch.setattr(settings, "rerank_enabled", False)
+    # GraphRAG 默认关闭（测试不依赖 Neo4j；图专项测试注入 mock）
+    monkeypatch.setattr(settings, "graph_enabled", False)
 
 
 @pytest.fixture

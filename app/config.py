@@ -68,6 +68,14 @@ class Settings(BaseSettings):
     router_llm_enabled: bool = False
     query_rewrite_enabled: bool = False
 
+    # GraphRAG（阶段十六）：Neo4j 实体关系检索（规则版抽取，最小可行）
+    # 失败软降级：图不可用返回空，不阻塞主检索链
+    graph_enabled: bool = True
+    neo4j_uri: str = "bolt://localhost:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = ""  # 只走环境变量
+    graph_top_k: int = 10
+
     # 拒答阈值（阶段七）：向量 top-1 相似度低于此值 → 判定"无依据"并拒答。
     # 校准记录（真实 BGE-M3，2026-10-31，28 分块语料）：无依据题 top-1 区间
     # 0.458~0.671（均值 0.551），有依据题 0.582~0.818（均值 0.713）——

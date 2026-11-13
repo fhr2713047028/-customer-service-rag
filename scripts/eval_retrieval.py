@@ -67,9 +67,8 @@ async def run_strategy(strategy: str, questions: list[dict], source_to_id: dict)
                     hybrid_hits = await hybrid_search(
                         session, q["question"], query_vec, top_k=10
                     )
-                    hits = await rerank_candidates(
-                        session, q["question"], hybrid_hits, top_n=TOP_K
-                    )
+                    pool = [(h.chunk, h.fused_score) for h in hybrid_hits]
+                    hits = await rerank_candidates(session, q["question"], pool, top_n=TOP_K)
                 elif strategy == "hybrid_rerank_rewrite":
                     # 阶段十五：查询改写（真实 LLM）→ 混合检索 → rerank 精排
                     from app.services.query_rewrite import rewrite_query
@@ -79,8 +78,24 @@ async def run_strategy(strategy: str, questions: list[dict], source_to_id: dict)
                     hybrid_hits = await hybrid_search(
                         session, rewritten, query_vec, top_k=10
                     )
+                    pool = [(h.chunk, h.fused_score) for h in hybrid_hits]
+                    hits = await rerank_candidates(session, rewritten, pool, top_n=TOP_K)
+                elif strategy == "hybrid_graph_rerank":
+                    # 阶段十六：混合检索 + 图检索候选池 → rerank 精排（与 kb_answer 一致）
+                    from app.retrieval.graph import search_graph
+
+                    query_vec = (await client.embed_texts([q["question"]]))[0]
+                    hybrid_hits = await hybrid_search(
+                        session, q["question"], query_vec, top_k=10
+                    )
+                    pool = [(h.chunk, h.fused_score) for h in hybrid_hits]
+                    graph_hits = await search_graph(session, q["question"], top_k=10)
+                    existing = {chunk.id for chunk, _ in pool}
+                    pool += [
+                        (chunk, score) for chunk, score in graph_hits if chunk.id not in existing
+                    ]
                     hits = await rerank_candidates(
-                        session, rewritten, hybrid_hits, top_n=TOP_K
+                        session, q["question"], pool, top_n=TOP_K
                     )
                 else:  # hybrid
                     query_vec = (await client.embed_texts([q["question"]]))[0]
@@ -145,7 +160,7 @@ async def run_eval() -> None:
     general = [q for q in kb_questions if q not in kw_type + sem_type]
 
     strategies = {}
-    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite", "hybrid_graph_rerank"):
         records = await run_strategy(strategy, kb_questions, source_to_id)
         strategies[strategy] = {
             "records": records,
@@ -171,7 +186,7 @@ async def run_eval() -> None:
         "| 方案 | Hit@5 | Recall@5 | MRR | 平均延迟(ms) | 异常题数 |",
         "|---|---|---|---|---|---|",
     ]
-    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite", "hybrid_graph_rerank"):
         m = strategies[strategy]["all"]
         lines.append(
             f"| {strategy} | {m['hit_at_5']:.1%} | {m['recall_at_5']:.1%} | "
@@ -186,20 +201,20 @@ async def run_eval() -> None:
         "| 方案 | Hit@5 | MRR | 平均延迟(ms) |",
         "|---|---|---|---|",
     ]
-    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite", "hybrid_graph_rerank"):
         m = strategies[strategy]["kw_type"]
         lines.append(
             f"| {strategy} | {m['hit_at_5']:.1%} | {m['mrr']:.4f} | {m['avg_latency_ms']:.1f} |"
         )
     lines += ["", "### 语义型（改写/口语化，3 题）", "", "| 方案 | Hit@5 | MRR | 平均延迟(ms) |", "|---|---|---|---|"]
-    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite", "hybrid_graph_rerank"):
         m = strategies[strategy]["sem_type"]
         lines.append(
             f"| {strategy} | {m['hit_at_5']:.1%} | {m['mrr']:.4f} | {m['avg_latency_ms']:.1f} |"
         )
 
     lines += ["", "## 每题目录（仅列未命中或异常的题，命中题见原数据）", "", "| id | 方案 | 问题 | 异常 |", "|---|---|---|---|"]
-    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite", "hybrid_graph_rerank"):
         for r in strategies[strategy]["records"]:
             if not r["hit"] or r["error"]:
                 lines.append(
@@ -223,6 +238,10 @@ async def run_eval() -> None:
         "  改写未带来收益，生产默认不启用（config: query_rewrite_enabled=false）。",
         "- **LLM 路由结论**：规则路由与 LLM 路由在 76 题评估集上准确率持平（98.7%），",
         "  详见 routing_eval_report.md；考虑 LLM 路由每次多约 1s 延迟，规则路由保留为生产默认。",
+        "- **GraphRAG 结论（2026-11-13 实测）**：hybrid_graph_rerank 的 Hit@5=100%、",
+        "  MRR=1.0000，与 hybrid_rerank 持平——图召回（Neo4j 实体关系，一跳提及+二跳共现）",
+        "  在强语义模型+精排下未带来额外提升，其价值在召回兜底与实体关联查询能力，",
+        "  如实记录不夸大。",
         "- 相似度/融合分/rerank 相关度都是排序依据，**不等于回答正确的概率**；",
         "  未经验证不设任何分数阈值。",
         "- 各方案指标来自同一评估集与同一语料库，差异可直接归因于检索方案本身。",
@@ -232,7 +251,7 @@ async def run_eval() -> None:
     REPORT_FILE.write_text("\n".join(lines), encoding="utf-8")
 
     print("=== 方案对比（同一评估集，含 rerank 精排）===")
-    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank", "hybrid_rerank_rewrite", "hybrid_graph_rerank"):
         m = strategies[strategy]["all"]
         print(
             f"{strategy:<8} Hit@5={m['hit_at_5']:.1%}  Recall@5={m['recall_at_5']:.1%}  "
