@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     langsmith_api_key: str = ""
     langsmith_project: str = "cs-rag"
 
+    # Rerank 精排（阶段十四）：BGE-Reranker 交叉编码器，硅基流动 /rerank 接口
+    # （复用 EMBEDDING_API_KEY）。失败时软降级为 RRF 原始顺序。
+    rerank_enabled: bool = True
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"
+    rerank_top_n: int = 5
+    rerank_timeout_seconds: int = 10
+
     # 拒答阈值（阶段七）：向量 top-1 相似度低于此值 → 判定"无依据"并拒答。
     # 校准记录（真实 BGE-M3，2026-10-31，28 分块语料）：无依据题 top-1 区间
     # 0.458~0.671（均值 0.551），有依据题 0.582~0.818（均值 0.713）——

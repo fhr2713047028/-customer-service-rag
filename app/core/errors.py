@@ -53,6 +53,13 @@ class LLMError(AppError):
         super().__init__(detail, code=50001, http_status=502)
 
 
+class RerankError(AppError):
+    """Rerank 上游服务失败：502 / 50001。"""
+
+    def __init__(self, detail: str = "重排序服务失败") -> None:
+        super().__init__(detail, code=50001, http_status=502)
+
+
 class DatabaseUnavailableError(AppError):
     """数据库不可用：503 / 50002（api_design.md 错误码表：依赖服务不可用）。
 

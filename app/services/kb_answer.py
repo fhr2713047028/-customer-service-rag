@@ -11,12 +11,13 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.errors import EmbeddingError, LLMError
+from app.core.errors import EmbeddingError, LLMError, RerankError
 from app.core.tracing import trace
 from app.embeddings.client import get_embedding_client
 from app.llm.client import REFUSAL_TEXT, get_llm_client
 from app.retrieval.hybrid import hybrid_search
 from app.retrieval.keyword import search_chunks_keyword
+from app.retrieval.rerank import rerank_candidates
 from app.services.prompts import SYSTEM_PROMPT, build_rag_user_prompt
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,8 @@ async def generate_kb_answer(
     embedding_client = get_embedding_client()
     try:
         query_vec = (await embedding_client.embed_texts([question]))[0]
-        hits = await hybrid_search(session, question, query_vec, top_k=5)
+        # 候选扩大到 10 个：供 rerank 精排后取前 5（阶段十四）
+        hits = await hybrid_search(session, question, query_vec, top_k=10)
     except EmbeddingError:
         # Embedding 服务失败（阶段九降级边界）：退化为关键词检索，
         # 明确记录错误、明确标注结果性质 —— 不伪造检索结果
@@ -80,7 +82,24 @@ async def generate_kb_answer(
             "confidence": "low",
         }
 
-    chunks = [h.chunk for h in hits]
+    # Rerank 精排（阶段十四）：在拒答判定之后执行——rerank 只影响候选先后，
+    # 不参与"有没有依据"的判断（两种分数不同量纲，混用会破坏阈值语义）。
+    # 失败软降级：回退 RRF 原始顺序，错误记入 rag_rerank_errors_total。
+    rerank_scores: dict[int, float] = {}
+    if settings.rerank_enabled and len(hits) > 1:
+        try:
+            reranked = await rerank_candidates(
+                session, question, hits, top_n=settings.rerank_top_n
+            )
+            chunks = [chunk for chunk, _ in reranked]
+            rerank_scores = {chunk.id: score for chunk, score in reranked}
+        except RerankError:
+            logger.exception("rerank failed, fallback to RRF order")
+            chunks = [h.chunk for h in hits[: settings.rerank_top_n]]
+    else:
+        chunks = [h.chunk for h in hits[: settings.rerank_top_n]]
+
+    chunks_by_id = {h.chunk.id: h for h in hits}
     user_prompt = build_rag_user_prompt(question, chunks, extra_context=extra_context)
     llm_client = get_llm_client()
     try:
@@ -103,9 +122,18 @@ async def generate_kb_answer(
             "doc_title": c.document.title,
             "chunk_id": c.id,
             "section": c.chunk_meta.get("section", "") if c.chunk_meta else "",
-            "score": round(h.vector_score, 4) if h.vector_score is not None else None,
+            # 分数优先展示 rerank 相关度；无 rerank 时回退向量相似度
+            "score": (
+                round(rerank_scores[c.id], 4)
+                if c.id in rerank_scores
+                else (
+                    round(chunks_by_id[c.id].vector_score, 4)
+                    if chunks_by_id[c.id].vector_score is not None
+                    else None
+                )
+            ),
             "order_no": None,
         }
-        for c, h in zip(chunks, hits)
+        for c in chunks
     ]
     return {"answer": answer, "answer_type": answer_type, "sources": sources, "confidence": confidence}

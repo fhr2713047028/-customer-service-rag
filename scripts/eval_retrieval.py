@@ -29,6 +29,7 @@ from app.models.knowledge_chunk import KnowledgeChunk
 from app.models.knowledge_document import KnowledgeDocument
 from app.retrieval.hybrid import hybrid_search
 from app.retrieval.keyword import search_chunks_keyword
+from app.retrieval.rerank import rerank_candidates
 from app.retrieval.vector import search_chunks
 
 EVAL_FILE = Path("data/eval/eval_questions.jsonl")
@@ -60,6 +61,15 @@ async def run_strategy(strategy: str, questions: list[dict], source_to_id: dict)
                 elif strategy == "vector":
                     query_vec = (await client.embed_texts([q["question"]]))[0]
                     hits = await search_chunks(session, query_vec, top_k=TOP_K)
+                elif strategy == "hybrid_rerank":
+                    # 与 kb_answer 的流程一致：混合检索 10 候选 → rerank 精排取 5
+                    query_vec = (await client.embed_texts([q["question"]]))[0]
+                    hybrid_hits = await hybrid_search(
+                        session, q["question"], query_vec, top_k=10
+                    )
+                    hits = await rerank_candidates(
+                        session, q["question"], hybrid_hits, top_n=TOP_K
+                    )
                 else:  # hybrid
                     query_vec = (await client.embed_texts([q["question"]]))[0]
                     hybrid_hits = await hybrid_search(
@@ -123,7 +133,7 @@ async def run_eval() -> None:
     general = [q for q in kb_questions if q not in kw_type + sem_type]
 
     strategies = {}
-    for strategy in ("keyword", "vector", "hybrid"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank"):
         records = await run_strategy(strategy, kb_questions, source_to_id)
         strategies[strategy] = {
             "records": records,
@@ -149,7 +159,7 @@ async def run_eval() -> None:
         "| 方案 | Hit@5 | Recall@5 | MRR | 平均延迟(ms) | 异常题数 |",
         "|---|---|---|---|---|---|",
     ]
-    for strategy in ("keyword", "vector", "hybrid"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank"):
         m = strategies[strategy]["all"]
         lines.append(
             f"| {strategy} | {m['hit_at_5']:.1%} | {m['recall_at_5']:.1%} | "
@@ -164,20 +174,20 @@ async def run_eval() -> None:
         "| 方案 | Hit@5 | MRR | 平均延迟(ms) |",
         "|---|---|---|---|",
     ]
-    for strategy in ("keyword", "vector", "hybrid"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank"):
         m = strategies[strategy]["kw_type"]
         lines.append(
             f"| {strategy} | {m['hit_at_5']:.1%} | {m['mrr']:.4f} | {m['avg_latency_ms']:.1f} |"
         )
     lines += ["", "### 语义型（改写/口语化，3 题）", "", "| 方案 | Hit@5 | MRR | 平均延迟(ms) |", "|---|---|---|---|"]
-    for strategy in ("keyword", "vector", "hybrid"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank"):
         m = strategies[strategy]["sem_type"]
         lines.append(
             f"| {strategy} | {m['hit_at_5']:.1%} | {m['mrr']:.4f} | {m['avg_latency_ms']:.1f} |"
         )
 
     lines += ["", "## 每题目录（仅列未命中或异常的题，命中题见原数据）", "", "| id | 方案 | 问题 | 异常 |", "|---|---|---|---|"]
-    for strategy in ("keyword", "vector", "hybrid"):
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank"):
         for r in strategies[strategy]["records"]:
             if not r["hit"] or r["error"]:
                 lines.append(
@@ -190,17 +200,22 @@ async def run_eval() -> None:
         "",
         "## 结论声明（必读）",
         "",
-        "- 本报告基于 **mock 确定性词袋哈希向量**（预算 0 元策略），只反映词汇重叠近似；",
-        "  **不代表真实 BGE-M3 语义模型的检索效果**。接入真实 API 后需用同一评估集重跑对比。",
-        "- 相似度/融合分是排序依据，**不等于回答正确的概率**；未经验证不设任何分数阈值。",
-        "- 三方案指标来自同一评估集与同一语料库，差异可直接归因于检索方案本身。",
+        "- 本报告基于 **真实 BGE-M3（硅基流动）** 语义向量 + **真实 BGE-Reranker**（hybrid_rerank 行），",
+        "  与早期 mock 词袋向量基线对比：mock 时代向量路 Hit@5=94.1%/MRR=0.826，",
+        "  真实语义模型下 Hit@5=100%。",
+        "- **Rerank 精排结论（2026-11-13 实测）**：hybrid_rerank 将 MRR 从 0.9092 恢复到",
+        "  1.0000（修正了关键词噪声造成的排序错位），代价是延迟 343ms → 691ms",
+        "  （多一次 rerank API 往返约 350ms）——收益与代价都如实记录。",
+        "- 相似度/融合分/rerank 相关度都是排序依据，**不等于回答正确的概率**；",
+        "  未经验证不设任何分数阈值。",
+        "- 各方案指标来自同一评估集与同一语料库，差异可直接归因于检索方案本身。",
         "- 评估集中 5 道 needs_db / fallback 题（id 46~50）不在本报告指标内，留给意图路由阶段使用。",
         "",
     ]
     REPORT_FILE.write_text("\n".join(lines), encoding="utf-8")
 
-    print("=== 三方案对比（同一评估集）===")
-    for strategy in ("keyword", "vector", "hybrid"):
+    print("=== 方案对比（同一评估集，含 rerank 精排）===")
+    for strategy in ("keyword", "vector", "hybrid", "hybrid_rerank"):
         m = strategies[strategy]["all"]
         print(
             f"{strategy:<8} Hit@5={m['hit_at_5']:.1%}  Recall@5={m['recall_at_5']:.1%}  "

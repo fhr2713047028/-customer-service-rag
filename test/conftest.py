@@ -35,6 +35,8 @@ def _force_mock_llm_only(monkeypatch):
     monkeypatch.setattr(llm_client, "_client", None)  # 清缓存，按下方 provider 重建
     monkeypatch.setattr(llm_client.settings, "llm_provider", "mock")
     monkeypatch.setattr(settings, "kb_refusal_min_score", 0.0)
+    # Rerank 默认关闭（测试确定性；rerank 专项测试自行开启并注入 mock 客户端）
+    monkeypatch.setattr(settings, "rerank_enabled", False)
 
 
 @pytest.fixture

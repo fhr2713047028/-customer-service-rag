@@ -58,6 +58,17 @@ EMBED_ERRORS = Counter(
     "rag_embedding_errors_total", "Embedding 调用错误数", ["provider", "error_class"]
 )
 
+# Rerank 调用耗时与错误（阶段十四）
+RERANK_DURATION = Histogram(
+    "rag_rerank_duration_seconds",
+    "Rerank 调用耗时（秒）",
+    ["provider"],
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2),
+)
+RERANK_ERRORS = Counter(
+    "rag_rerank_errors_total", "Rerank 调用错误数", ["provider", "error_class"]
+)
+
 # RAG 请求总耗时（按处理路径与回答类型）
 RAG_DURATION = Histogram(
     "rag_request_duration_seconds",
