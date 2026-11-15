@@ -172,4 +172,3 @@ Function Calling 版工具选择（工具注册表已预留）。
 | [docs/performance_report.md](docs/performance_report.md) | 三类压测与瓶颈分析 |
 | [docs/retrieval_eval_report.md](docs/retrieval_eval_report.md) | 检索三方案对比评估 |
 | [docs/rag_eval_report.md](docs/rag_eval_report.md) | 76 题 RAG 评估 |
-| [docs/interview_qa.md](docs/interview_qa.md) | 面试问题清单 |
